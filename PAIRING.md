@@ -1,22 +1,24 @@
-# O+ Connect discovery & pairing — from the ONet logs
+# O+ Connect discovery & pairing — the research log
 
-Recovered from the app's own native logs (`pantaconnect/pantaSdkDlog.log`,
-`pantaServiceDlog.log`) and the Electron `render.log`. These cover the step the
-transfer log didn't: how a phone and PC find each other and establish trust,
-*before* the WebSocket transfer in `PROTOCOL.md`.
+> **How pairing actually works:** after scanning the QR, the phone connects to
+> the PC over **Wi-Fi** (SCP on TCP 10152) and runs UKey2; the PC asks you to
+> allow it, then keeps the key the phone sends. No Bluetooth, no OPPO account.
+> The spec is [SCP.md](SCP.md); the crypto, [CRYPTO.md](CRYPTO.md).
+>
+> This page is how that was found, in order. The early sections, read from the
+> Windows app's logs, concluded pairing ran over Bluetooth. The sections dated
+> 2026-11-19 show the phone's own code and traffic proving it runs over Wi-Fi.
+> Both are kept: the Windows-side findings (the QR format, discovery, the
+> same-account path) still hold; only the transport conclusion changed.
 
-**Headline:** discovery and addressing are easy and fully recovered. There are
-**two** trust paths, and a cross-account capture has now settled which one a
-Linux client should target:
+Recovered first from the Windows app's own logs (`pantaconnect/pantaSdkDlog.log`,
+`pantaServiceDlog.log`) and its Electron `render.log`: how a phone and PC find
+each other and establish trust, *before* the file transfer in `PROTOCOL.md`.
 
-* **Same account** (`isSameAccount:true`) → an **OPPO account-match handshake**;
-  the peer proves it holds the signed-in account's key material. Silent.
-* **Cross account** (`isSameAccount:false`) → a **Bluetooth fast-pair handshake**
-  gated by the on-screen "Allow this device?" confirm, which derives a persistent
-  session key (KSC); the WiFi `authentication` stage then just re-proves that key
-  (`pairType:0`). **`account_match` is not the gate** — on a signed-out PC it runs
-  *after* auth success, empty. **This path needs no OPPO account** and is the one
-  to build. CAPTURE-VERIFIED over two sessions — see "The cross-account path".
+**What still holds from this part:** discovery and addressing are fully
+recovered, and there are two trust paths: **same account** (a silent OPPO
+account-match handshake) and **cross account** (needs your confirmation, no
+OPPO account). Olink uses the cross-account path.
 
 ## The QR code is just an address, not a secret
 
@@ -123,7 +125,7 @@ On that connection, in `pantaServiceDlog`:
 * The active modules are `14102` / `15001` / `15004` with **`pairType: 0`**, and
   the trust work happens in the native **`authentication`** module.
 
-### It's TWO layers — the confirm and the key live in Bluetooth fast-pair
+### Reading the Windows logs: two layers (transport superseded, see 2026-11-19)
 
 A second, cold capture (PC signed out, both sides deleted, re-paired at 19:25
 with the on-screen **"Allow this device to connect to 'OPPO Find X9 Ultra'?"**
@@ -179,41 +181,22 @@ Reading of the primitives:
   `pantaConnSDKDll` — the `cryptoUkey2DoKeyAgreement` / `cryptoUkey2Hkdf`
   exports. Working assumption: ECDH P-256 + HKDF-SHA256 → AES-256-GCM.
 
-## The crypto is fully resolved — it's Google UKey2 (see CRYPTO.md)
+## What the Windows binaries showed (2026-11-18)
 
-Static analysis of `pantaConnSDKDll.dll` and `pantaChannelService.exe` settled
-the key agreement completely: **the BLE handshake is standard Google UKey2 +
-SecureMessage, vendored verbatim** (a leaked build path even names
-`utils\ukey2\protobuf_cpp\securemessage.pb.cc`). Full spec in **CRYPTO.md**.
-Essentials:
+Static analysis of `pantaConnSDKDll.dll` and `pantaChannelService.exe` got the
+key exchange right: **stock Google UKey2, cipher `P256_SHA512`** (P-256 —
+`EC_KEY_new_by_curve_name` is always called with NID 415 — and a SHA-512
+commitment), **HKDF-SHA256** with the stock salts `UKEY2 v1 auth` /
+`UKEY2 v1 next`, and a build path showing Google's code is vendored
+(`utils\ukey2\protobuf_cpp\securemessage.pb.cc`).
 
-* Handshake: **UKey2, cipher `P256_SHA512`** (ECDH P-256 — confirmed `NID 0x19f`
-  at every `EC_KEY_new_by_curve_name` call — with a SHA-512 commitment).
-* KDF: **HKDF-SHA256** with the stock UKey2 salts **`UKEY2 v1 auth`** and
-  **`UKEY2 v1 next`** (both literal strings in the binary).
-* D2D session: SecureMessage **AES-256-CBC + HMAC-SHA256**, sigs
-  **ECDSA_P256_SHA256**. WiFi transfer channel: AES-128-GCM.
-* The 8-byte `RC` is the **UKey2 verification string truncated to 8 bytes**.
-* BLE transport: GATT service **0xAA16 / 0xAA17**, advertised via WinRT alongside
-  Wi-Fi Direct.
-
-## What remains for a Linux client — glue, not crypto
-
-**No crypto to reverse or reimplement**: link `google/ukey2` + SecureMessage and
-run cipher `P256_SHA512`. The remaining work is integration, none of it needing
-an account:
-
-1. **BLE (BlueZ)**: advertise/connect GATT service **0xAA16/0xAA17** and carry the
-   `Ukey2Message` frames over its characteristics. One BLE sniff would confirm the
-   exact characteristic layout — the only open wire detail left.
-2. A Linux "Allow this device?" dialog, hooked to UKey2's verification string.
-3. Persist the derived D2D key + peer device-id (mirror `keyMgrSaveKsc` /
-   `keyMgrSavePeerDeviceId`) so reconnects are silent.
-4. The WiFi `authentication` re-proof (RC from the stored key) then the AES-128-GCM
-   transfer channel (already mapped in PROTOCOL.md).
-
-This supersedes the old three-option plan entirely: cross-account is confirmed,
-account login is off the table, and the crypto is a solved, open standard.
+Three conclusions drawn from the Windows side alone turned out wrong, and are
+corrected in CRYPTO.md: pairing doesn't run over Bluetooth (it's SCP on TCP
+10152), the session isn't AES-CBC + HMAC (it's AES-256-GCM, plus OPPO's
+`ivSpec`), and the 8-byte value compared on reconnect isn't the UKey2
+verification string (it's the HMAC-SHA512 proof of the KSC on the data
+channel). The build plan that followed assumed Bluetooth; the sections below
+are where that changed.
 
 ## GATT layout — CAPTURE-VERIFIED on Linux (2026-11-19, Find X9 Ultra CPH2841)
 

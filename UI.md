@@ -7,7 +7,8 @@ framework, no build step, no bundler: what's in `src/` is what runs.
 |---|---|
 | `src/index.html` | The page: header, pairing panel (QR), phone screen panel with the app grid, files panel, notifications, settings dialog, pairing dialog, drop overlay, toast |
 | `src/main.js` | All behaviour (ES module, ~470 lines) |
-| `src/styles.css` | All styling; colours are CSS variables on `:root`, with a dark set under `prefers-color-scheme: dark` |
+| `src/styles.css` | All styling, in the design language of [Streamline](https://github.com/whozdgt/streamline): CSS variables on `:root` are the dark **Midnight** theme, and `prefers-color-scheme: light` swaps in **Classic** |
+| `src/assets/` | The icon: `olink.svg` (Midnight) and `olink-classic.svg` (Classic); the header's `<picture>` picks one with the theme |
 | `src/fonts/` | Optional Inter font (falls back to the system UI font) |
 
 Preview it in any browser without the app: serve `src/` (for example
