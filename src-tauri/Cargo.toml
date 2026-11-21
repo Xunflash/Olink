@@ -6,13 +6,7 @@ authors = ["whozdgt"]
 edition = "2021"
 rust-version = "1.77"
 
-# ---------------------------------------------------------------------------
-# NOTE ON BUILDING
-# This scaffold is delivered without a vendored crate cache, so it has not been
-# compiled in the environment that generated it. Run `cargo build` on your own
-# machine (with network access) to fetch these crates and compile.
-# Pin exact versions in your lockfile once it builds for you.
-# ---------------------------------------------------------------------------
+# Build: see README.md. Releases build with `--locked` against Cargo.lock.
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -65,26 +59,6 @@ gstreamer-video = { version = "0.24", features = ["v1_22"] }
 gtk = "0.18"
 # inotify, mallopt/malloc_trim (keeping the background app small and idle).
 libc = "0.2"
-
-# ---------------------------------------------------------------------------
-# Discovery / pairing / session dependencies — commented out until those
-# modules are implemented. See ARCHITECTURE.md and CRYPTO.md.
-#
-# Transport / discovery:
-#   bluer   = { version = "0.17", features = ["bluetoothd"] }  # BlueZ / BLE (ble::)
-#   mdns-sd = "0.11"                                           # mDNS fallback (discovery::)
-#
-# Pairing (Layer 1): the handshake is STANDARD Google UKey2 (P256_SHA512) — link
-# the published library rather than hand-rolling the crypto. Options:
-#   - FFI to google/ukey2 (C++, Apache-2.0), the exact code the Windows app vendors; or
-#   - a Rust UKey2 + SecureMessage port.
-# Only if reimplementing from scratch: p256 (ecdh+ecdsa), hkdf, sha2, aes/cbcmac.
-#
-# Session (Layer 2) — the Wi-Fi re-proof + transfer AEAD:
-#   aes-gcm = "0.10"   # AES-128-GCM (cryptoAesGcm* equivalent)
-#   hmac    = "0.12"   # the RC challenge MAC
-#   sha2    = "0.10"
-# ---------------------------------------------------------------------------
 
 [features]
 # Turn these on as the native layers land.

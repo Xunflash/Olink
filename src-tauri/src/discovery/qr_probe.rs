@@ -1,13 +1,20 @@
-//! QR / ONet probe — diagnostic CLI for the Wi-Fi first-contact path.
+//! The phone connection: the pairing QR, the SCP server and what runs after it.
 //!
 //! ```text
-//!   olink net-probe qr [ip]
+//!   olink net-probe pair [ip]   # run the phone server in a terminal
+//!   olink net-probe qr [ip]     # print the QR and only log what arrives
 //! ```
 //!
-//! Prints an O+ Connect pairing QR code (same `oconn` shape the Windows app
-//! builds, see PAIRING.md) pointing at this machine, then listens on TCP and
-//! UDP **46888** and hex-dumps every byte the phone sends. It never replies, so
-//! it can't commit the phone to anything — it only observes the opening move.
+//! `pair` is what the app runs in the background (`main.rs`): it shows an
+//! O+ Connect pairing QR for this machine (the same `oconn` shape the Windows
+//! app builds, see PAIRING.md) and serves the phone's connection: SCP on TCP
+//! 10152 (`scp::server`, spec in SCP.md), the data channel on TCP 46888
+//! (`scp::epi`), and the services on top of it.
+//!
+//! `qr` prints the same code but never replies, so it only observes the
+//! phone's opening move without committing it to anything.
+//!
+//! (The module name is historical: this started out as the QR probe.)
 
 use std::time::Instant;
 
