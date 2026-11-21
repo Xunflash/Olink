@@ -32,7 +32,7 @@ with this `oconn` payload (full, from `render.log`):
 {"oconn":{
   "bm":   "00:11:22:33:44:55",      // PC Bluetooth MAC
   "pm":   "00:11:22:33:44:56",      // PC Wi-Fi-Direct (P2P) MAC
-  "dvd":  "62AD0BFC9E83",            // PC device id
+  "dvd":  "1A2B3C4D5E6F",            // PC device id
   "name": "My_Laptop",
   "model":"B5339A",
   "addr": "192.168.x.229:46888",    // PC ONet listener  <-- the key field
@@ -272,7 +272,7 @@ Windows `fastPair` module (static analysis of the installed binaries).
 ### QR first-contact experiment from Linux (2026-11-19) — negative result
 
 Showed an `oconn` QR (fresh `dvd` 4C494E555801, real `bm`, LAN `addr`
-192.168.178.107:46888) and listened on TCP+UDP 46888, with a mirrored GATT
+192.168.x.107:46888) and listened on TCP+UDP 46888, with a mirrored GATT
 server (service AA15 > AA16/AA17/AA20) advertising, and btmon running.
 The phone accepted the QR, showed "press Allow on the PC", then timed out with
 "connection failed". **Zero traffic reached us**: no TCP/UDP on 46888, no LE
@@ -289,7 +289,7 @@ Read over `adb logcat` (wireless debugging). O+ Connect's engine is
 `com.oplus.linker` ("Device Connect"). After scanning our QR:
 
 1. `OutOfBandDeviceEvent` parses it: `device:4C494E555801, bt address,
-   p2p address, btName:Linux, wifiIpExtra:192.168.178.107:46888, deviceType:6`.
+   p2p address, btName:Linux, wifiIpExtra:192.168.x.107:46888, deviceType:6`.
 2. It opens an **SCP connection** as **Seeker**: `connectScp … ipv4=<qr ip>,
    port=10152, type=WLAN_TCP`, in parallel with a `P2P_TCP` (Wi-Fi Direct)
    attempt. **Port is 10152, not the QR's 46888.**
