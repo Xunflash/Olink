@@ -1,0 +1,46 @@
+# Builds and tests Olink on Arch Linux, its target platform, with the same
+# libraries packaging/arch/PKGBUILD depends on, against the committed
+# Cargo.lock (--locked), as `makepkg` does.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git rust cmake \
+            dbus libsoup3 webkit2gtk-4.1 gtk3 libayatana-appindicator \
+            gstreamer gst-plugins-base gst-plugins-base-libs gst-plugins-good \
+            gst-plugins-bad gst-plugins-bad-libs gst-plugin-gtk libnice gst-libav
+
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: arch-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: arch-cargo-
+
+      - name: Check
+        working-directory: src-tauri
+        run: cargo check --locked --all-targets
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test --locked
