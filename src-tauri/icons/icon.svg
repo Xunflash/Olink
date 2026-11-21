@@ -1,14 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Olink, Midnight: Streamline's Midnight theme as an icon. Black ground,
+       the accent's glow behind the glyph, and the link shading from accent
+       #16a34a to ink #1bcc5c (the accent lifted, exactly as Streamline does). -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22c1a6"/>
-      <stop offset="1" stop-color="#1667d9"/>
+    <clipPath id="tile"><rect x="16" y="16" width="480" height="480" rx="112"/></clipPath>
+    <radialGradient id="glow" cx="256" cy="256" r="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16a34a" stop-opacity="0.46"/>
+      <stop offset="0.5" stop-color="#16a34a" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#16a34a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ink" x1="92" y1="0" x2="420" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16a34a"/>
+      <stop offset="0.55" stop-color="#1bcc5c"/>
+      <stop offset="1" stop-color="#4ade80"/>
     </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
   </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
-  <!-- Two interlocking links -->
-  <g transform="rotate(-45 256 256)" fill="none" stroke="#ffffff" stroke-width="40" stroke-linecap="round">
-    <rect x="92" y="196" width="196" height="120" rx="60"/>
-    <rect x="224" y="196" width="196" height="120" rx="60"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="#000000"/>
+  <g clip-path="url(#tile)">
+    <rect x="16" y="16" width="480" height="480" fill="url(#glow)"/>
+    <g transform="rotate(-45 256 256)" fill="none" stroke="#1bcc5c" stroke-width="40" filter="url(#soft)" opacity="0.6">
+      <rect x="92" y="196" width="196" height="120" rx="60"/><rect x="224" y="196" width="196" height="120" rx="60"/>
+    </g>
   </g>
+  <g transform="rotate(-45 256 256)" fill="none">
+    <g stroke="url(#ink)" stroke-width="40"><rect x="92" y="196" width="196" height="120" rx="60"/><rect x="224" y="196" width="196" height="120" rx="60"/></g>
+  </g>
+  <!-- glass edge, so the black tile still reads on a dark dock -->
+  <rect x="16.75" y="16.75" width="478.5" height="478.5" rx="111.25" fill="none"
+        stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5"/>
 </svg>

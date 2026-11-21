@@ -10,7 +10,10 @@
     <main class="app">
       <header class="app__header">
         <div class="brand">
-          <img class="brand__mark" src="./assets/olink.svg" alt="" width="44" height="44" />
+          <picture class="brand__mark-swap">
+            <source srcset="./assets/olink-classic.svg" media="(prefers-color-scheme: light)" />
+            <img class="brand__mark" src="./assets/olink.svg" alt="" width="36" height="36" />
+          </picture>
           <div>
             <h1 class="brand__title">Olink</h1>
             <p class="brand__sub">Your phone on Linux</p>
