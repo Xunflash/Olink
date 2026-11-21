@@ -1,0 +1,98 @@
+[package]
+name = "olink"
+version = "0.1.0"
+description = "Olink: your OPPO, OnePlus or realme phone (ColorOS 16) on Linux"
+authors = ["whozdgt"]
+edition = "2021"
+rust-version = "1.77"
+
+# ---------------------------------------------------------------------------
+# NOTE ON BUILDING
+# This scaffold is delivered without a vendored crate cache, so it has not been
+# compiled in the environment that generated it. Run `cargo build` on your own
+# machine (with network access) to fetch these crates and compile.
+# Pin exact versions in your lockfile once it builds for you.
+# ---------------------------------------------------------------------------
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+
+# Serialization — the O+ Connect control messages are JSON.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Async runtime + networking for the control channel and file server.
+tokio = { version = "1", features = ["full"] }
+# WebSocket framing only: we hand it TLS streams we set up ourselves.
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+futures-util = "0.3"
+
+# TLS (PC → phone file server, phone share-server client) + self-signed certs.
+tokio-rustls = "0.26"
+rustls = "0.23"
+rcgen = { version = "0.13", default-features = false, features = ["aws_lc_rs", "pem"] }
+# P-256 ECDH (UKey2, ODMF auth): the same constant-time, FIPS-validated
+# library rustls already uses.
+aws-lc-rs = "1.19"
+
+# Utilities.
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+bluer = { version = "0.17.4", features = ["bluetoothd", "l2cap", "rfcomm"] }
+hex = "0.4.3"
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+urlencoding = "2.1.3"
+prost = "0.13"
+hkdf = "0.12.4"
+hmac = "0.12.1"
+sha2 = "0.10.9"
+aes-gcm = "0.10.3"
+rand = "0.8"
+flate2 = "1"
+sha1 = "0.10"
+base64 = "0.22"
+gstreamer = "0.24"
+gstreamer-webrtc = { version = "0.24", features = ["v1_22"] }
+gstreamer-sdp = "0.24"
+gstreamer-video = { version = "0.24", features = ["v1_22"] }
+# Own video window (GTK3, same as Tauri's webkit2gtk) so scroll + keys both work.
+gtk = "0.18"
+# inotify, mallopt/malloc_trim (keeping the background app small and idle).
+libc = "0.2"
+
+# ---------------------------------------------------------------------------
+# Discovery / pairing / session dependencies — commented out until those
+# modules are implemented. See ARCHITECTURE.md and CRYPTO.md.
+#
+# Transport / discovery:
+#   bluer   = { version = "0.17", features = ["bluetoothd"] }  # BlueZ / BLE (ble::)
+#   mdns-sd = "0.11"                                           # mDNS fallback (discovery::)
+#
+# Pairing (Layer 1): the handshake is STANDARD Google UKey2 (P256_SHA512) — link
+# the published library rather than hand-rolling the crypto. Options:
+#   - FFI to google/ukey2 (C++, Apache-2.0), the exact code the Windows app vendors; or
+#   - a Rust UKey2 + SecureMessage port.
+# Only if reimplementing from scratch: p256 (ecdh+ecdsa), hkdf, sha2, aes/cbcmac.
+#
+# Session (Layer 2) — the Wi-Fi re-proof + transfer AEAD:
+#   aes-gcm = "0.10"   # AES-128-GCM (cryptoAesGcm* equivalent)
+#   hmac    = "0.12"   # the RC challenge MAC
+#   sha2    = "0.10"
+# ---------------------------------------------------------------------------
+
+[features]
+# Turn these on as the native layers land.
+default = []
+discovery = []
+pairing = []
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

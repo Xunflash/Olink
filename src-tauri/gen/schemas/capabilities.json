@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Main window: our own commands plus listening to backend events (phone events, file drag and drop). Nothing else from Tauri's core API.","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}

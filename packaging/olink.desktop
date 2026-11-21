@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Olink
+GenericName=Phone connection
+Comment=Your OPPO, OnePlus or realme phone on Linux: clipboard, files, notifications and the phone screen
+Exec=olink
+Icon=olink
+Terminal=false
+Categories=Network;Utility;
+Keywords=phone;oppo;oneplus;realme;android;share;clipboard;
+StartupNotify=true
+SingleMainWindow=true

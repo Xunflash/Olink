@@ -1,0 +1,5 @@
+# makepkg output
+arch/pkg/
+arch/src/
+arch/*.pkg.tar.*
+arch/*.log

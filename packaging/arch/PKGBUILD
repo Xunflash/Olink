@@ -1,0 +1,61 @@
+# Local package for this checkout: builds the project folder this file lives
+# in (with your makepkg.conf compiler flags) and installs it system-wide.
+#
+#   cd packaging/arch && makepkg -si
+#
+# Uninstall with: sudo pacman -R olink
+
+pkgname=olink
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Your OPPO, OnePlus or realme phone on Linux: clipboard, files, notifications and the phone screen"
+arch=('x86_64')
+conflicts=('oplus-connect-linux')
+replaces=('oplus-connect-linux')
+license=('MIT')
+depends=(
+  'glibc' 'libgcc' 'glib2' 'dbus' 'cairo' 'gdk-pixbuf2' 'libsoup3'
+  'webkit2gtk-4.1'        # the app window
+  'gtk3'
+  'libayatana-appindicator' # tray icon
+  'gstreamer'             # phone screen (WebRTC)
+  'gst-plugins-base' 'gst-plugins-base-libs'
+  'gst-plugins-good'
+  'gst-plugins-bad' 'gst-plugins-bad-libs' # webrtcbin, DTLS/SRTP
+  'gst-plugin-gtk'        # the phone-screen window
+  'libnice'               # ICE for WebRTC
+  'gst-libav'             # H.264 decoding
+  'wl-clipboard'          # clipboard on Wayland
+  'libnotify'             # desktop notifications
+  'xdg-desktop-portal'    # file picker
+)
+optdepends=(
+  'gst-plugin-va: hardware video decoding for the phone screen'
+  'bluez: Bluetooth address in the pairing QR'
+  'ufw: firewall profile "Olink" (sudo ufw allow Olink)'
+  'xclip: clipboard on X11'
+)
+makedepends=('cargo')
+options=('!lto' '!debug')
+
+# The project root, two levels up from this file.
+_root="$(realpath "$startdir/../..")"
+
+build() {
+  cd "$_root/src-tauri"
+  export CARGO_TARGET_DIR="$_root/src-tauri/target"
+  cargo build --release --locked --features tauri/custom-protocol
+}
+
+package() {
+  cd "$_root"
+  install -Dm755 src-tauri/target/release/olink "$pkgdir/usr/bin/olink"
+  install -Dm644 packaging/olink.desktop "$pkgdir/usr/share/applications/olink.desktop"
+  for s in 32 128 256 512; do
+    install -Dm644 "src-tauri/icons/${s}x${s}.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/olink.png"
+  done
+  install -Dm644 src-tauri/icons/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/olink.svg"
+  install -Dm644 packaging/ufw/olink "$pkgdir/etc/ufw/applications.d/olink"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "olink",
+  "version": "0.1.0",
+  "description": "Olink: your OPPO, OnePlus or realme phone (ColorOS 16) on Linux",
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

@@ -1,0 +1,4 @@
+[Olink]
+title=Olink
+description=Phone connection (pairing, data channel, file sending, screen cast signalling and video)
+ports=10150:10152/tcp|46888/tcp|46890/tcp|46892/tcp|46900:46999/udp
