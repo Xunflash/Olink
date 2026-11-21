@@ -7,6 +7,10 @@
 
 <h1 align="center">Olink</h1>
 
+<p align="center">
+  <a href="https://github.com/whozdgt/Olink/actions/workflows/build.yml"><img src="https://github.com/whozdgt/Olink/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+</p>
+
 **Your OPPO, OnePlus or realme phone on Linux.** Olink speaks the phone's own
 PC-connection protocol ("O+ Connect" / Device connect → PC in ColorOS), so the
 phone connects **directly to Linux** over Wi-Fi: no OPPO PC app, no cloud, no
