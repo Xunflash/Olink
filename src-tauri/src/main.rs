@@ -22,6 +22,7 @@ mod ipc;
 mod protocol;
 mod scp;
 mod settings;
+mod status;
 mod util;
 
 fn main() {
@@ -51,6 +52,33 @@ fn main() {
             std::process::exit(1);
         }
         return;
+    }
+
+    // For the bar widget: `olink status` prints the phone's state line ("0"
+    // when Olink isn't running); `olink cast` shows the phone screen.
+    match args.first().map(String::as_str) {
+        Some("status") => {
+            match ipc::cli_request("status", serde_json::Value::Null) {
+                Some(Ok(v)) => println!("{}", v.as_str().unwrap_or("0")),
+                _ => println!("0"),
+            }
+            return;
+        }
+        Some("cast") => {
+            match ipc::cli_request("start_cast", serde_json::json!({ "app": null })) {
+                Some(Ok(_)) => {}
+                Some(Err(e)) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+                None => {
+                    eprintln!("Olink isn't running.");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
+        _ => {}
     }
 
     // The window process (started by the background process; see `ipc`).
@@ -96,6 +124,7 @@ fn main() {
                     events::Event::Disconnected => desktop::set_status("Phone: not connected"),
                     _ => {}
                 }
+                status::on_event(&ev);
                 ipc::broadcast_event(&ev);
             });
             desktop::create_tray(app.handle())?;

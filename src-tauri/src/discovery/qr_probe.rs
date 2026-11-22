@@ -923,8 +923,16 @@ async fn handle_databus(
     use crate::scp::{dbr, epi};
     anyhow::ensure!(body.len() > 3, "short databus frame");
     let (flags, id) = (body[0], u16::from_be_bytes([body[1], body[2]]));
-    // The phone always encrypts DataBus traffic; plaintext would be injected.
-    anyhow::ensure!(flags & 4 != 0, "unencrypted DataBus frame; dropped");
+    // The phone encrypts DataBus traffic; a plaintext frame is never acted
+    // on (it could be injected). Say what it was, to learn if one matters.
+    if flags & 4 == 0 {
+        let what = dbr::RouterMsg::parse(&body[3..]).map(|m| {
+            let v: serde_json::Value = serde_json::from_slice(&m.payload).unwrap_or_default();
+            format!("router type {}, {}", m.msg_type, v["dbs_msg_topic"]["dbs_topic_name"].as_str().or(v["dbs_msg_type"].as_str()).unwrap_or("?"))
+        });
+        println!("  ! unencrypted DataBus frame ({}), {} bytes; dropped", what.unwrap_or_else(|e| format!("unparsed: {e}")), body.len());
+        return Ok(DbEv::None);
+    }
     let plain = c.decrypt(&body[3..])?.1;
     let m = dbr::RouterMsg::parse(&plain)?;
     if crate::util::debug() {

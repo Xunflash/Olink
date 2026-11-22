@@ -72,11 +72,42 @@ pub fn serve(listener: std::os::unix::net::UnixListener, on_show: impl Fn() + Se
                 match first {
                     Ok(Ok(Some(l))) if l == "show" => on_show(),
                     Ok(Ok(Some(l))) if l == "ui" => serve_window(lines, wr).await,
+                    Ok(Ok(Some(l))) if l == "cli" => serve_cli(lines, wr).await,
                     _ => {}
                 }
             });
         }
     });
+}
+
+/// `olink status` / `olink cast`: one request, one answer, then close (not a
+/// window: nothing is broadcast to it).
+async fn serve_cli(
+    mut lines: tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
+    mut wr: tokio::net::unix::OwnedWriteHalf,
+) {
+    let Ok(Ok(Some(line))) = tokio::time::timeout(std::time::Duration::from_secs(2), lines.next_line()).await else { return };
+    let Ok(req) = serde_json::from_str::<Value>(&line) else { return };
+    let reply = match handle(req["cmd"].as_str().unwrap_or_default(), &req["args"]).await {
+        Ok(v) => json!({ "ok": v }),
+        Err(e) => json!({ "err": e }),
+    };
+    let _ = wr.write_all(format!("{reply}\n").as_bytes()).await;
+}
+
+/// The command-line side of `serve_cli`. None if Olink isn't running.
+pub fn cli_request(cmd: &str, args: Value) -> Option<Result<Value, String>> {
+    use std::io::{BufRead, Write};
+    let mut s = std::os::unix::net::UnixStream::connect(socket_path().ok()?).ok()?;
+    s.set_read_timeout(Some(std::time::Duration::from_secs(5))).ok()?;
+    writeln!(s, "cli\n{}", json!({ "cmd": cmd, "args": args })).ok()?;
+    let mut line = String::new();
+    std::io::BufReader::new(s).read_line(&mut line).ok()?;
+    let v: Value = serde_json::from_str(&line).ok()?;
+    Some(match v.get("err") {
+        Some(e) => Err(e.as_str().unwrap_or("error").to_string()),
+        None => Ok(v["ok"].clone()),
+    })
 }
 
 async fn serve_window(
@@ -124,6 +155,7 @@ async fn handle(cmd: &str, args: &Value) -> Result<Value, String> {
             state.extend(crate::approval::pending_event());
             serde_json::to_value(state).map_err(|e| e.to_string())
         }
+        "status" => Ok(json!(crate::status::current())),
         "get_settings" => serde_json::to_value(crate::settings::get()).map_err(|e| e.to_string()),
         "set_settings" => {
             // Typed: only the listed choices deserialize.

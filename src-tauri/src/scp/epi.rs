@@ -357,9 +357,11 @@ pub struct AppCipher {
     ksc: Vec<u8>,
     qcqs: [u8; 16],
     send_t: u64,
-    /// Highest counter accepted from the phone: each message must carry a
-    /// larger one, so a recorded message can't be replayed into the stream.
+    /// Highest counter accepted from the phone, and which of the 64 below it
+    /// were seen: the phone sometimes sends a little out of order, but a
+    /// counter is never accepted twice, so recorded messages can't be replayed.
     recv_t: u64,
+    recv_seen: u64,
 }
 
 impl AppCipher {
@@ -367,12 +369,12 @@ impl AppCipher {
         let mut qcqs = [0u8; 16];
         qcqs[..8].copy_from_slice(&qc);
         qcqs[8..].copy_from_slice(&qs);
-        Self { ksc: ksc.to_vec(), qcqs, send_t: 0, recv_t: 0 }
+        Self { ksc: ksc.to_vec(), qcqs, send_t: 0, recv_t: 0, recv_seen: 0 }
     }
 
     /// Same keys, fresh counters (each session has its own cipher state).
     pub fn fresh(&self) -> Self {
-        Self { ksc: self.ksc.clone(), qcqs: self.qcqs, send_t: 0, recv_t: 0 }
+        Self { ksc: self.ksc.clone(), qcqs: self.qcqs, send_t: 0, recv_t: 0, recv_seen: 0 }
     }
 
     fn material(&self, t: u64) -> [u8; 64] {
@@ -383,13 +385,24 @@ impl AppCipher {
         use aes_gcm::aead::{Aead, KeyInit, Payload};
         anyhow::ensure!(data.len() >= 8 + 16, "too short");
         let t = u64::from_be_bytes(data[..8].try_into()?);
-        anyhow::ensure!(t > self.recv_t, "replayed or out-of-order message (counter {t} after {})", self.recv_t);
+        let fresh = t > self.recv_t || {
+            let back = self.recv_t - t;
+            back < 64 && self.recv_seen & (1u64 << back) == 0
+        };
+        anyhow::ensure!(t > 0 && fresh, "replayed or too-late message (counter {t}, newest {})", self.recv_t);
         let h = self.material(t);
         let c = aes_gcm::Aes128Gcm::new_from_slice(&h[..16])?;
         let pt = c
             .decrypt(aes_gcm::Nonce::from_slice(&h[16..28]), Payload { msg: &data[8..], aad: &h[28..48] })
             .map_err(|_| anyhow::anyhow!("GCM tag mismatch"))?;
-        self.recv_t = t;
+        if t > self.recv_t {
+            let shift = t - self.recv_t;
+            self.recv_seen = if shift >= 64 { 0 } else { self.recv_seen << shift };
+            self.recv_seen |= 1;
+            self.recv_t = t;
+        } else {
+            self.recv_seen |= 1u64 << (self.recv_t - t);
+        }
         Ok((t, pt))
     }
 
@@ -454,6 +467,20 @@ mod tests {
         assert_eq!(r.sessions, vec![212, 184]);
         assert_eq!(r.channels, vec![104, 110]);
         assert_eq!(hex::encode(service_conn_response(&r, 0)), "02b36910056170703a636c6970626f617264736572766963653b00000200d400b8");
+    }
+
+    /// The phone may send a little out of order; a counter still only counts once.
+    #[test]
+    fn reordering_window() {
+        let mut tx = AppCipher::new(&KSC, QC, QS);
+        let msgs: Vec<Vec<u8>> = (0..4).map(|i| tx.encrypt(&[i]).unwrap()).collect(); // counters 1..=4
+        let mut rx = AppCipher::new(&KSC, QC, QS);
+        assert!(rx.decrypt(&msgs[1]).is_ok()); // 2
+        assert!(rx.decrypt(&msgs[0]).is_ok()); // 1, late but new
+        assert!(rx.decrypt(&msgs[0]).is_err()); // 1 again: replay
+        assert!(rx.decrypt(&msgs[3]).is_ok()); // 4
+        assert!(rx.decrypt(&msgs[2]).is_ok()); // 3, late but new
+        assert!(rx.decrypt(&msgs[3]).is_err()); // 4 again
     }
 
     /// Per-session ciphers count separately: two sessions both start at 1.

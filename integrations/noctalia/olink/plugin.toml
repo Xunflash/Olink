@@ -1,0 +1,22 @@
+# Olink "island" for the Noctalia bar: a small capsule with a laptop glyph and
+# a status light. Grey dot = no phone; when the phone connects it grows into a
+# bar with the phone's name, battery and what's happening (transfers, screen).
+#
+# Olink pushes every change over Noctalia's IPC, so the widget never polls:
+#   noctalia msg plugin whozdgt/olink:island all status "<fields>"
+# and `olink status` gives the current state when the widget loads.
+
+id = "whozdgt/olink"
+name = "Olink"
+version = "0.1.0"
+plugin_api = 36
+author = "whozdgt"
+license = "MIT"
+icon = "device-laptop"
+description = "Your phone's connection to Olink, as a status capsule: grey dot when it's away, its name and battery when it's connected."
+tags = ["phone", "olink"]
+
+[[widget]]
+id = "island"
+entry = "island.luau"
+hover_highlight = false
