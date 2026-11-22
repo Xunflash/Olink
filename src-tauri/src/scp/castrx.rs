@@ -48,6 +48,60 @@ pub struct Receiver {
     id: u64,
 }
 
+/// Decoded video frames reaching the window (for the stats line).
+static VIDEO_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Video bytes (RTP, after decryption) out of webrtcbin (for the stats line).
+static VIDEO_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Every 5 s while the cast runs: received bitrate, frame rate, lost
+/// packets and jitter, from webrtcbin's stats. Ends with the receiver.
+fn log_stats(webrtc: &gst::Element) {
+    let weak = webrtc.downgrade();
+    std::thread::spawn(move || {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (mut bytes0, mut frames0, mut lost0) = (VIDEO_BYTES.load(Relaxed), VIDEO_FRAMES.load(Relaxed), 0i64);
+        let mut t0 = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let Some(webrtc) = weak.upgrade() else { return };
+            if webrtc.current_state() != gst::State::Playing {
+                return;
+            }
+            let promise = gst::Promise::new();
+            webrtc.emit_by_name::<()>("get-stats", &[&None::<gst::Pad>, &promise]);
+            drop(webrtc);
+            if promise.wait() != gst::PromiseResult::Replied {
+                continue;
+            }
+            let Some(reply) = promise.get_reply() else { continue };
+            let (mut lost, mut jitter) = (0i64, 0f64);
+            for (_, v) in reply.iter() {
+                let Ok(st) = v.get::<gst::Structure>() else { continue };
+                if st.get::<gst_webrtc::WebRTCStatsType>("type").ok() != Some(gst_webrtc::WebRTCStatsType::InboundRtp) {
+                    continue;
+                }
+                // Field types differ between GStreamer versions: take any integer.
+                let int = |f: &str| -> i64 {
+                    st.value(f).ok().and_then(|v| v.get::<i64>().ok().or(v.get::<u64>().ok().map(|x| x as i64)).or(v.get::<i32>().ok().map(i64::from)).or(v.get::<u32>().ok().map(i64::from))).unwrap_or(0)
+                };
+                lost += int("packets-lost");
+                jitter = jitter.max(st.get::<f64>("jitter").unwrap_or(0.0));
+            }
+            let bytes = VIDEO_BYTES.load(Relaxed);
+            let secs = t0.elapsed().as_secs_f64().max(0.001);
+            let frames = VIDEO_FRAMES.load(Relaxed);
+            println!(
+                "  cast stats: {:.1} Mbit/s, {:.0} fps, {} packets lost, jitter {:.0} ms",
+                (bytes.saturating_sub(bytes0)) as f64 * 8.0 / secs / 1e6,
+                (frames - frames0) as f64 / secs,
+                lost - lost0,
+                jitter * 1000.0
+            );
+            (bytes0, frames0, lost0, t0) = (bytes, frames, lost, std::time::Instant::now());
+        }
+    });
+}
+
 /// Next receiver id.
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
@@ -127,10 +181,7 @@ impl Receiver {
         agent.set_property("max-rtp-port", ICE_PORT_MAX);
 
         let caps = match media {
-            Media::Video => gst::Caps::from_str(
-                "application/x-rtp,media=video,encoding-name=H264,payload=102,clock-rate=90000;\
-                 application/x-rtp,media=video,encoding-name=H265,payload=103,clock-rate=90000",
-            )?,
+            Media::Video => gst::Caps::from_str(&video_caps())?,
             Media::Audio => gst::Caps::from_str("application/x-rtp,media=audio,encoding-name=OPUS,payload=111,clock-rate=48000,encoding-params=(string)2")?,
         };
         let transceiver = webrtc.emit_by_name::<gst_webrtc::WebRTCRTPTransceiver>(
@@ -169,6 +220,7 @@ impl Receiver {
                         println!("  ! webrtc: create-offer failed: {reply:?}");
                         return;
                     };
+                    let offer = add_bitrate_hints(&offer);
                     w2.emit_by_name::<()>("set-local-description", &[&offer, &None::<gst::Promise>]);
                     let sdp = offer.sdp().as_text().unwrap_or_default();
                     *mids.lock().unwrap() = sdp
@@ -262,6 +314,9 @@ impl Receiver {
         if let Some(f) = offer_fn.take() {
             f(webrtc.clone());
         }
+        if media == Media::Video {
+            log_stats(&webrtc);
+        }
         println!("  ★ WebRTC {media:?} receiver started (ICE UDP {ICE_PORT_MIN}-{ICE_PORT_MAX})");
         Ok(Self { pipeline, webrtc, media, id })
     }
@@ -301,6 +356,61 @@ impl Drop for Receiver {
     }
 }
 
+/// Transport-wide congestion control (the header extension our feedback
+/// refers to). Without it the phone's WebRTC sender gets no delay feedback,
+/// never raises its estimate, and sat at ~0.1-0.3 Mbit/s (phone Wi-Fi tx
+/// 15-40 KB/s in the 2026-11-20 casts): the encoder dropped most frames.
+const TWCC_URI: &str = "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01";
+
+/// Bitrate hints for the phone's sender (kbit/s: start, min, max), by the
+/// requested size. libwebrtc reads `x-google-*-bitrate` from our offer's fmtp.
+fn bitrate_hints() -> (u32, u32, u32) {
+    let (w, _, _) = cast_size();
+    match w {
+        0..=800 => (3000, 1000, 6000),
+        801..=1200 => (6000, 1500, 12000),
+        _ => (8000, 2000, 20000),
+    }
+}
+
+/// What we offer to receive: H.264 / H.265 with NACK, keyframe requests and
+/// transport-cc feedback (bitrate hints: `add_bitrate_hints`).
+fn video_caps() -> String {
+    let extra = format!(
+        "rtcp-fb-nack=(boolean)true,rtcp-fb-nack-pli=(boolean)true,rtcp-fb-ccm-fir=(boolean)true,\
+         rtcp-fb-transport-cc=(boolean)true,extmap-3=(string)\"{TWCC_URI}\""
+    );
+    format!(
+        "application/x-rtp,media=video,encoding-name=H264,payload=102,clock-rate=90000,{extra};\
+         application/x-rtp,media=video,encoding-name=H265,payload=103,clock-rate=90000,{extra}"
+    )
+}
+
+/// Add `a=fmtp:<pt> x-google-{start,min,max}-bitrate=…` for each H.264/H.265
+/// payload of the video m-line (webrtcbin leaves `x-` caps fields out).
+fn add_bitrate_hints(offer: &gst_webrtc::WebRTCSessionDescription) -> gst_webrtc::WebRTCSessionDescription {
+    let (start, min, max) = bitrate_hints();
+    let mut sdp = offer.sdp().to_owned();
+    for i in 0..sdp.medias_len() {
+        let Some(media) = sdp.media_mut(i) else { continue };
+        if media.media() != Some("video") {
+            continue;
+        }
+        let pts: Vec<String> = media
+            .attributes()
+            .filter(|a| a.key() == "rtpmap")
+            .filter_map(|a| a.value())
+            .filter(|v| v.contains("H264/") || v.contains("H265/"))
+            .filter_map(|v| v.split_whitespace().next().map(str::to_string))
+            .collect();
+        for pt in pts {
+            let hint = format!("{pt} x-google-start-bitrate={start};x-google-min-bitrate={min};x-google-max-bitrate={max}");
+            let _ = media.add_attribute("fmtp", Some(&hint));
+        }
+    }
+    gst_webrtc::WebRTCSessionDescription::new(offer.type_(), sdp)
+}
+
 fn cast_latency_ms() -> u32 {
     std::env::var("OPLUS_CAST_LATENCY").ok().and_then(|v| v.parse().ok()).unwrap_or(200)
 }
@@ -334,19 +444,32 @@ pub fn sink_consult_params() -> String {
 /// Default video window: our own GTK3 window around gtksink's widget, so we
 /// get trackpad scroll AND keys (glimagesink on Wayland has no keyboard, on
 /// X11 no scroll; gtksink's own window passes neither usefully).
-/// OPLUS_CAST_SINK picks a plain sink instead (glimagesink, waylandsink, …).
-static OWN_WINDOW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-    std::env::var("OPLUS_CAST_SINK").is_err() && gst::ElementFactory::find("gtksink").is_some()
+/// Preferred: gtkglsink (OpenGL: the GPU converts and scales each frame;
+/// gtksink did both on the CPU, ~5× the CPU time at 1080×2376@60).
+/// OPLUS_CAST_SINK=gtksink|gtkglsink picks one of the two; any other value is
+/// a plain sink without our window (glimagesink, waylandsink, …).
+static GTK_SINK: std::sync::LazyLock<Option<&'static str>> = std::sync::LazyLock::new(|| {
+    let have = |n: &str| gst::ElementFactory::find(n).is_some();
+    match std::env::var("OPLUS_CAST_SINK").ok().as_deref() {
+        Some(s @ ("gtksink" | "gtkglsink")) => have(s).then_some(if s == "gtksink" { "gtksink" } else { "gtkglsink" }),
+        Some(_) => None,
+        None if have("gtkglsink") && have("glupload") => Some("gtkglsink"),
+        None if have("gtksink") => Some("gtksink"),
+        None => None,
+    }
 });
 
+static OWN_WINDOW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| GTK_SINK.is_some());
+
 static VIDEO_CHAIN: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    let sink = match std::env::var("OPLUS_CAST_SINK") {
-        Ok(s) => s,
-        Err(_) if *OWN_WINDOW => "gtksink name=vsink".into(),
-        Err(_) => "glimagesink".into(),
+    let tail = match (*GTK_SINK, std::env::var("OPLUS_CAST_SINK")) {
+        (Some("gtkglsink"), _) => "glupload ! glcolorconvert ! gtkglsink name=vsink sync=false".to_string(),
+        (Some(_), _) => "videoconvert ! gtksink name=vsink sync=false".to_string(),
+        (None, Ok(s)) => format!("videoconvert ! {s} sync=false"),
+        (None, Err(_)) => "videoconvert ! glimagesink sync=false".to_string(),
     };
-    println!("  video window: {sink}");
-    format!("queue max-size-buffers=3 leaky=downstream ! videoconvert ! {sink} sync=false")
+    println!("  video window: {tail}");
+    format!("queue max-size-buffers=3 leaky=downstream ! {tail}")
 });
 
 /// Log everything that arrives on a data channel.
@@ -622,7 +745,7 @@ fn build_window(sink: &gst::Element, id: u64, out: tokio::sync::mpsc::UnboundedS
     let nav = sink
         .clone()
         .dynamic_cast::<gstreamer_video::Navigation>()
-        .map_err(|_| anyhow::anyhow!("gtksink is not a GstNavigation"))?;
+        .map_err(|_| anyhow::anyhow!("the video sink is not a GstNavigation"))?;
 
     let win = gtk::Window::new(gtk::WindowType::Toplevel);
     win.set_title("Phone");
@@ -692,6 +815,17 @@ fn build_window(sink: &gst::Element, id: u64, out: tokio::sync::mpsc::UnboundedS
 
 /// webrtcbin src pad → decodebin → video window / audio output.
 fn link_decoder(pipeline: &gst::Pipeline, pad: &gst::Pad, channel: SharedChannel, id: u64, out: tokio::sync::mpsc::UnboundedSender<Value>) -> anyhow::Result<()> {
+    if pad.current_caps().or_else(|| Some(pad.query_caps(None))).is_some_and(|c| c.structure(0).is_some_and(|s| s.get::<&str>("media").ok() == Some("video"))) {
+        pad.add_probe(gst::PadProbeType::BUFFER | gst::PadProbeType::BUFFER_LIST, |_, info| {
+            let n = match &info.data {
+                Some(gst::PadProbeData::Buffer(b)) => b.size(),
+                Some(gst::PadProbeData::BufferList(l)) => l.calculate_size(),
+                _ => 0,
+            };
+            VIDEO_BYTES.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+            gst::PadProbeReturn::Ok
+        });
+    }
     let decode = gst::ElementFactory::make("decodebin").build()?;
     pipeline.add(&decode)?;
     decode.sync_state_with_parent()?;
@@ -731,6 +865,10 @@ fn link_decoder(pipeline: &gst::Pipeline, pad: &gst::Pad, channel: SharedChannel
                     let w = s.and_then(|s| s.get::<i32>("width").ok()).unwrap_or(1080) as u16;
                     let h = s.and_then(|s| s.get::<i32>("height").ok()).unwrap_or(2376) as u16;
                     if let Some(p) = bin.static_pad("sink") {
+                        p.add_probe(gst::PadProbeType::BUFFER, |_, _| {
+                            VIDEO_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            gst::PadProbeReturn::Ok
+                        });
                         forward_input(&p, channel.clone(), w, h);
                         println!("  ★ input: click/drag = touch, wheel = scroll, right-click = Back, middle-click = Home, typing = keys ({w}×{h})");
                     }
@@ -748,6 +886,37 @@ use std::str::FromStr;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Our offer must ask for transport-cc feedback and carry the bitrate
+    /// hints, or the phone's sender stays at its low start bitrate.
+    #[test]
+    fn offer_has_congestion_feedback_and_bitrate_hints() {
+        gst::init().unwrap();
+        let pipeline = gst::Pipeline::new();
+        let webrtc = gst::ElementFactory::make("webrtcbin").build().unwrap();
+        pipeline.add(&webrtc).unwrap();
+        let caps = gst::Caps::from_str(&video_caps()).unwrap();
+        let t = webrtc.emit_by_name::<gst_webrtc::WebRTCRTPTransceiver>(
+            "add-transceiver",
+            &[&gst_webrtc::WebRTCRTPTransceiverDirection::Recvonly, &caps],
+        );
+        t.set_property("do-nack", true);
+        pipeline.set_state(gst::State::Playing).unwrap();
+        let promise = gst::Promise::new();
+        webrtc.emit_by_name::<()>("create-offer", &[&None::<gst::Structure>, &promise]);
+        promise.wait();
+        let offer = promise.get_reply().unwrap().get::<gst_webrtc::WebRTCSessionDescription>("offer").unwrap();
+        let offer = add_bitrate_hints(&offer);
+        let sdp = offer.sdp().as_text().unwrap();
+        pipeline.set_state(gst::State::Null).unwrap();
+        println!("{sdp}");
+        assert!(sdp.contains("a=rtcp-fb:102 transport-cc"), "no transport-cc:\n{sdp}");
+        assert!(sdp.contains(&format!("a=extmap:3 {TWCC_URI}")), "no TWCC extmap:\n{sdp}");
+        assert!(sdp.contains("a=fmtp:102 x-google-start-bitrate="), "no H.264 bitrate hints:\n{sdp}");
+        assert!(sdp.contains("a=fmtp:103 x-google-start-bitrate="), "no H.265 bitrate hints:\n{sdp}");
+        assert!(!sdp.contains("a=fmtp:96 x-google"), "hint on an RTX payload:\n{sdp}");
+        assert!(sdp.contains("a=rtcp-fb:102 nack pli"), "no PLI:\n{sdp}");
+    }
 
     #[test]
     fn transport_bus_id_heuristic() {
