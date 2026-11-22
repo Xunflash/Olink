@@ -3,8 +3,9 @@
 //! when set, for testing.
 //!
 //! Every field is a closed set of values (enums, bool), so the web page can
-//! only pick among them: nothing it sends turns into a path, a command or a
-//! free-form string.
+//! only pick among them: nothing it sends turns into a path or a command.
+//! The one piece of text, the PC's name, is checked by `PcName` (length,
+//! no control characters) before it's accepted.
 
 use std::path::PathBuf;
 use std::sync::{LazyLock, RwLock};
@@ -57,7 +58,38 @@ pub enum Theme {
     Classic,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+/// The name the phone shows for this PC. Empty = this computer's name.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "String", into = "String")]
+pub struct PcName(String);
+
+impl PcName {
+    pub const MAX_CHARS: usize = 40;
+}
+
+impl TryFrom<String> for PcName {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        let s = s.trim();
+        if s.chars().count() > Self::MAX_CHARS {
+            return Err(format!("the PC name can be at most {} characters", Self::MAX_CHARS));
+        }
+        // It goes into line-based protocols (the SDP announce) and JSON:
+        // no line breaks or other control characters.
+        if s.chars().any(char::is_control) {
+            return Err("the PC name can't contain line breaks or control characters".into());
+        }
+        Ok(PcName(s.to_string()))
+    }
+}
+
+impl From<PcName> for String {
+    fn from(n: PcName) -> String {
+        n.0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct Settings {
     pub cast_quality: CastQuality,
@@ -70,11 +102,13 @@ pub struct Settings {
     /// Start (in the tray) when the user logs in.
     pub start_on_login: bool,
     pub theme: Theme,
+    /// What the phone calls this PC (empty: the computer's name).
+    pub pc_name: PcName,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { cast_quality: CastQuality::default(), scroll_mode: ScrollMode::default(), desktop_notifications: true, share_clipboard: true, start_on_login: true, theme: Theme::System }
+        Self { cast_quality: CastQuality::default(), scroll_mode: ScrollMode::default(), desktop_notifications: true, share_clipboard: true, start_on_login: true, theme: Theme::System, pc_name: PcName::default() }
     }
 }
 
@@ -93,18 +127,35 @@ static CURRENT: LazyLock<RwLock<Settings>> = LazyLock::new(|| {
 });
 
 pub fn get() -> Settings {
-    *CURRENT.read().unwrap_or_else(|p| p.into_inner())
+    CURRENT.read().unwrap_or_else(|p| p.into_inner()).clone()
+}
+
+/// This computer's name (hostname without the domain), or "Linux".
+pub fn computer_name() -> String {
+    let host = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default();
+    let host = host.trim().split('.').next().unwrap_or_default();
+    match PcName::try_from(host.to_string()) {
+        Ok(n) if !n.0.is_empty() => n.0,
+        _ => "Linux".into(),
+    }
+}
+
+/// The name the phone sees: the setting, or the computer's name.
+pub fn pc_name() -> String {
+    let n = get().pc_name.0;
+    if n.is_empty() { computer_name() } else { n }
 }
 
 /// Replace the settings and save them (write a temp file, then rename).
 pub fn set(s: Settings) -> anyhow::Result<()> {
+    let bytes = serde_json::to_vec_pretty(&s)?;
     *CURRENT.write().unwrap_or_else(|p| p.into_inner()) = s;
     let p = path();
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let tmp = p.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&s)?)?;
+    std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, &p)?;
     Ok(())
 }
@@ -118,5 +169,14 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{"scroll_mode":"scroll"}"#).unwrap();
         assert_eq!(s, Settings { scroll_mode: ScrollMode::Scroll, ..Settings::default() });
         assert!(serde_json::from_str::<Settings>(r#"{"cast_quality":"/etc/passwd"}"#).is_err());
+    }
+
+    #[test]
+    fn pc_name_is_checked() {
+        let s: Settings = serde_json::from_str(r#"{"pc_name":"  Sam's desktop  "}"#).unwrap();
+        assert_eq!(String::from(s.pc_name), "Sam's desktop");
+        assert!(serde_json::from_str::<Settings>(r#"{"pc_name":"evil\r\nDN: x"}"#).is_err());
+        assert!(serde_json::from_str::<Settings>(&format!(r#"{{"pc_name":"{}"}}"#, "x".repeat(41))).is_err());
+        assert_eq!(serde_json::from_str::<Settings>(r#"{"pc_name":""}"#).unwrap().pc_name, PcName::default());
     }
 }

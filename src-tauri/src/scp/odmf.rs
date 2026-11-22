@@ -329,7 +329,7 @@ async fn session(s: &mut tokio::net::TcpStream, auth: &AuthInfo, log_dir: &Optio
                             replies.push(json!({
                                 "cmd": "PairSuccess",
                                 "remote_user_id": "linux",
-                                "remote_user_name": "Linux",
+                                "remote_user_name": crate::settings::pc_name(),
                                 "remote_transportbus_id": v["remote_transportbus_id"].as_str().filter(|s| !s.is_empty()).unwrap_or("linux-peer"),
                             }));
                             // PC cast waits for the PC's codec (odmfu/odmfb "waiting for pc codec").

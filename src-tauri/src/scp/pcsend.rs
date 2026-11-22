@@ -815,7 +815,7 @@ where
         let mut offer = json!({
             "taskId": task_id,
             "senderId": "4C494E555801i1Tx",
-            "senderName": "Linux",
+            "senderName": crate::settings::pc_name(),
             "fileName": first,
             "mimeType": "application/octet-stream",
             "fileCount": files.len(),

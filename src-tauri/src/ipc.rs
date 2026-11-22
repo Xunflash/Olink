@@ -156,12 +156,18 @@ async fn handle(cmd: &str, args: &Value) -> Result<Value, String> {
             serde_json::to_value(state).map_err(|e| e.to_string())
         }
         "status" => Ok(json!(crate::status::current())),
-        "get_settings" => serde_json::to_value(crate::settings::get()).map_err(|e| e.to_string()),
+        "get_settings" => {
+            let mut v = serde_json::to_value(crate::settings::get()).map_err(|e| e.to_string())?;
+            // For the PC name field's placeholder (not a setting: ignored on save).
+            v["computer_name"] = json!(crate::settings::computer_name());
+            Ok(v)
+        }
         "set_settings" => {
             // Typed: only the listed choices deserialize.
             let settings: crate::settings::Settings = serde_json::from_value(args["settings"].clone()).map_err(|e| format!("Invalid settings: {e}"))?;
+            let start_on_login = settings.start_on_login;
             crate::settings::set(settings).map_err(|e| format!("Couldn't save settings: {e}"))?;
-            crate::autostart::sync(settings.start_on_login).map_err(|e| format!("Couldn't change start on login: {e}"))?;
+            crate::autostart::sync(start_on_login).map_err(|e| format!("Couldn't change start on login: {e}"))?;
             Ok(Value::Null)
         }
         "answer_pairing" => {

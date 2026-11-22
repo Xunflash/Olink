@@ -112,6 +112,12 @@
         <h2 id="settings-title" class="dialog__title">Settings</h2>
 
         <fieldset class="field">
+          <legend class="field__label">This PC's name</legend>
+          <input id="pc-name" class="text-input" type="text" name="pc_name" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="pc-name-hint" />
+          <p class="panel__hint" id="pc-name-hint">What your phone calls this computer: in OPPO Share and in Settings → Device connect. Leave it empty to use the computer's name. The phone picks up a new name when it next connects.</p>
+        </fieldset>
+
+        <fieldset class="field">
           <legend class="field__label">Look</legend>
           <label class="choice"><input type="radio" name="theme" value="system" /> <span><b>Match my desktop</b> · Midnight when it's dark, Classic when it's light</span></label>
           <label class="choice"><input type="radio" name="theme" value="midnight" /> <span><b>Midnight</b> · black and green</span></label>

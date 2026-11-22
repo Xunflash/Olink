@@ -34,7 +34,12 @@ pub const MSG_PROBE_ANSWER: u8 = 4;
 pub fn build_offer(peer_id: &str, friendly_name: &str) -> Vec<u8> {
     let mut pid = peer_id.as_bytes().to_vec();
     pid.resize(36, b'0');
-    let name = &friendly_name.as_bytes()[..friendly_name.len().min(64)];
+    // At most 64 bytes, cut on a character boundary (the name is UTF-8).
+    let mut end = friendly_name.len().min(64);
+    while !friendly_name.is_char_boundary(end) {
+        end -= 1;
+    }
+    let name = friendly_name[..end].as_bytes();
 
     let mut b = vec![MSG_OFFER];
     b.extend_from_slice(&10u16.to_be_bytes()); // ProtocolVersion
@@ -521,6 +526,16 @@ mod tests {
         assert!(!check_auth_request(&[0u8; 16], &r));
         let (resp, _, _) = build_auth_response(&KSC, &r, [1; 8], 5);
         assert_eq!(resp.len(), 27);
+    }
+
+    #[test]
+    fn offer_name_cut_on_char_boundary() {
+        let name = "€".repeat(22); // 3 bytes each: byte 64 falls inside the 22nd
+        let o = build_offer("4C494E555801-0000-0000-0000-000000000000", &name);
+        assert_eq!(o[41], 8); // FriendlyName tag, then its length
+        let len = o[42] as usize;
+        assert_eq!(len, 63);
+        assert_eq!(std::str::from_utf8(&o[43..43 + len]).unwrap(), "€".repeat(21));
     }
 
     #[test]

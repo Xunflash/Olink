@@ -379,6 +379,7 @@ function readSettingsForm() {
     share_clipboard: f.share_clipboard.checked,
     start_on_login: f.start_on_login.checked,
     theme: f.theme.value || "system",
+    pc_name: f.pc_name.value.trim(),
   };
 }
 
@@ -390,6 +391,8 @@ function fillSettingsForm(s) {
   f.share_clipboard.checked = !!s.share_clipboard;
   f.start_on_login.checked = !!s.start_on_login;
   f.theme.value = s.theme || "system";
+  f.pc_name.value = s.pc_name || "";
+  f.pc_name.placeholder = s.computer_name || "";
 }
 
 $("open-settings").addEventListener("click", async () => {
@@ -444,7 +447,7 @@ function setupDrop() {
 
 // ---- Demo (browser preview only) ---------------------------------------------------------
 
-let demoSettings = { cast_quality: "balanced", scroll_mode: "swipe", desktop_notifications: true, share_clipboard: true, start_on_login: true, theme: "system" };
+let demoSettings = { cast_quality: "balanced", scroll_mode: "swipe", desktop_notifications: true, share_clipboard: true, start_on_login: true, theme: "system", pc_name: "", computer_name: "my-computer" };
 function demo(cmd, args) {
   if (cmd === "get_settings") return demoSettings;
   if (cmd === "set_settings") { demoSettings = args.settings; return null; }

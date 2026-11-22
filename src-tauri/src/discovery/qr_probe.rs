@@ -71,7 +71,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
     // not as the Windows install it already trusts.
     let device_id = "4C494E555801"; // "LINUX" + 01
     let bt_mac = bt_mac().await.unwrap_or_else(|_| "00:00:00:00:00:00".into());
-    let url = qr_url(&ip, device_id, &bt_mac, "Linux");
+    let url = qr_url(&ip, device_id, &bt_mac, &crate::settings::pc_name());
 
     let code = QrCode::new(url.as_bytes())?;
     let img = code
@@ -106,7 +106,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
         let tcp = TcpListener::bind(("0.0.0.0", crate::scp::SCP_PORT)).await?;
         let me = crate::scp::server::LocalIdentity {
             device_id: device_id.to_string(),
-            device_name: "Linux".into(),
+            device_name: crate::settings::pc_name(),
             model_id: "B5339A".into(),
         };
         tokio::spawn(async move {
@@ -160,7 +160,7 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
                     if port == ONET_PORT {
                         // Data channel: we must send the PD OFFER first (scp/epi.rs).
                         use crate::scp::epi;
-                        let offer = epi::build_offer("4C494E555801-4c69-6e75-7800-000000000001", "Linux");
+                        let offer = epi::build_offer("4C494E555801-4c69-6e75-7800-000000000001", &crate::settings::pc_name());
                         println!("  → EPI {} ", epi::describe(&offer));
                         if let Err(e) = epi::write_msg(&mut s, &offer).await {
                             println!("  ! EPI write: {e}");
@@ -1014,7 +1014,7 @@ async fn handle_databus(
             short: m.short,
             route: vec![m.source],
             extra: vec![],
-            payload: dbr::hello_payload("4C494E555801", "Linux"),
+            payload: dbr::hello_payload("4C494E555801", &crate::settings::pc_name()),
         };
         *next_id = next_id.wrapping_add(1).max(1);
         let mut frame = dbr::databus_header(*next_id).to_vec();
@@ -1178,8 +1178,10 @@ fn sdp_announce(query: &str, ip: &str) -> String {
     };
     format!(
         "ANNOUNCE * HTTP/1.1\r\nMAN: \"sdp/1\"\r\nNS: scp.device\r\nDSP: 10151\r\nCSP: 10152\r\nDMS: 0\r\n\
-         PDID: 4C494E555801\r\nAD: {}\r\nDT: 6\r\nDN: Linux\r\nVIRTUAL_IP: {ip}\r\nNSDATA: \r\n\r\n",
-        header("AD:")
+         PDID: 4C494E555801\r\nAD: {}\r\nDT: 6\r\nDN: {}\r\nVIRTUAL_IP: {ip}\r\nNSDATA: \r\n\r\n",
+        header("AD:"),
+        // Checked: no line breaks (settings::PcName).
+        crate::settings::pc_name()
     )
 }
 
