@@ -44,6 +44,9 @@ _root="$(realpath "$startdir/../..")"
 build() {
   cd "$_root/src-tauri"
   export CARGO_TARGET_DIR="$_root/src-tauri/target"
+  # Keep your home path (username) out of the binary: Rust embeds crate
+  # source paths for panic messages.
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=~"
   cargo build --release --locked --features tauri/custom-protocol
 }
 

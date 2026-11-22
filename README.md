@@ -50,9 +50,11 @@ Uninstall with `sudo pacman -R olink`.
 
 ```bash
 npm install
-NO_STRIP=true GSTREAMER_INCLUDE_BAD_PLUGINS=1 npm run tauri build -- --bundles appimage
-# → src-tauri/target/release/bundle/appimage/  (needs patchelf)
+scripts/build-appimage.sh
+# → dist/Olink-<version>-x86_64.AppImage  (needs patchelf)
 ```
+
+The script keeps your home path (and so your username) out of the binary.
 
 Runtime needs: WebKitGTK 4.1, GTK 3, libayatana-appindicator, GStreamer with
 the good/bad plugins, libnice and gst-libav (phone screen), wl-clipboard,
