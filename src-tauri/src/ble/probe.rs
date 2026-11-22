@@ -1,5 +1,5 @@
-//! BLE probe — a diagnostic CLI used to learn the GATT layout from a real phone
-//! (build-order step 2/3). Run as:
+//! BLE probe — a diagnostic CLI, used during the research to learn whether the
+//! phone pairs over a GATT service (it doesn't: see the module docs). Run as:
 //!
 //! ```text
 //!   olink ble-probe scan [seconds]   # list nearby BLE advertisers

@@ -1,106 +1,95 @@
-# O+ Connect pairing crypto — the complete spec
+# Crypto
 
-Recovered by static analysis of the shipped binaries in `C:\Program Files\O+Connect\daemon`:
-`pantaConnSDKDll.dll` (the crypto/ONet library) and `pantaChannelService.exe`
-(the pairing policy + handshake driver). Method: PE import/export tables,
-`strings`, and targeted `objdump` disassembly. **No decompiler was needed** — the
-decisive finding is that the handshake is a *standard, open-source protocol*.
+What protects the link between Olink and the phone, layer by layer. The exact
+wire formats are in [SCP.md](SCP.md) (pairing and the secure channel) and
+[CAST.md](CAST.md) (the phone screen); this page is the overview and where it
+came from.
 
-## TL;DR — it's Google UKey2 + SecureMessage, vendored verbatim
+Olink implements all of it natively in Rust on standard libraries:
+`aws-lc-rs` for P-256 ECDH, and the RustCrypto `aes-gcm`, `hkdf`, `hmac` and
+`sha2` crates. Nothing is home-made: every primitive is a stock one.
 
-The "trust this PC?" pairing is **Google's UKey2** authenticated key exchange
-followed by a **Google SecureMessage** D2D secure channel. Both are open-source
-(`github.com/google/ukey2`), Apache-2.0. A leaked build path in the binary even
-names the vendored copy:
+## Three layers
 
-```
-F:\ai-windows\PC_PantaConnect\utils\ukey2\protobuf_cpp\securemessage.pb.cc
-```
+| Layer | Where | Key comes from | Protection |
+|---|---|---|---|
+| Pairing and secure channel | SCP, TCP 10152 | UKey2 key exchange (ECDH P-256) | AES-256-GCM |
+| Data channel | TCP 46888 | The KSC, a 16-byte key the phone generates during pairing | HMAC-SHA512 proof, then AES-128-GCM with a fresh key per message |
+| Phone-screen signalling | ODMF, TCP 46892 | Its own ECDH P-256 exchange | AES-256-GCM |
 
-The protobuf message types are the stock UKey2 ones, confirmed in the binary:
-`securegcm.Ukey2ClientInit.CipherCommitment`, `securegcm.Ukey2Message.Type`,
-`securegcm.Ukey2Alert.AlertType`, `securemessage.EcP256PublicKey`,
-`securemessage.Header`, `securemessage.SigScheme`, `securemessage.EncScheme`.
+## 1. Pairing: UKey2 over SCP
 
-**Consequence for the Linux client: you don't reverse or reimplement the pairing
-crypto. You link the published `google/ukey2` + SecureMessage libraries and drive
-them.** The hard part is solved upstream.
+After scanning the QR the phone connects to TCP 10152 and runs **Google's UKey2**
+with cipher **P256_SHA512**, exactly as Google publishes it
+([github.com/google/ukey2](https://github.com/google/ukey2)), plus one OPPO
+addition:
 
-## The primitives (CAPTURE-VERIFIED from the binaries)
+- ECDH on **NIST P-256**; the ClientInit commits to ClientFinished with
+  **SHA-512**.
+- `derived = SHA-256(Z)`; keys come from **HKDF-SHA256** with the stock salts
+  **`UKEY2 v1 auth`** (the verification string) and **`UKEY2 v1 next`** (the
+  next-protocol secret), then the D2D client and server keys.
+- **OPPO's addition:** `ClientFinished` carries a 16-byte random `ivSpec`.
+- From then on every SCP packet is **AES-256-GCM** in both directions, keyed
+  with the D2D *client* key, IV = the first 12 bytes of `ivSpec`.
 
-| Role | Primitive | Evidence |
-|---|---|---|
-| Handshake | **UKey2, cipher `P256_SHA512`** | `generateP256SHA512ClientFinished`; `Ukey2ClientInit.CipherCommitment` |
-| Key agreement | **ECDH on NIST P-256** | `EC_KEY_new_by_curve_name(ecx=0x19f)` = NID 415 = `prime256v1`, at every call site; `EVP_PKEY_derive` → 32-byte shared secret |
-| Commitment hash | **SHA-512** | the `P256_SHA512` cipher name; `EVP_sha512` imported |
-| KDF | **HKDF-SHA256 (RFC 5869)** | `cryptoUkey2Hkdf`: HMAC extract+expand, `EVP_PKEY_new_mac_key(0x357=EVP_PKEY_HMAC)` + `EVP_sha256` + `EVP_DigestSign*`, single `0x01` counter byte, 32-byte PRK |
-| HKDF salts | **`UKEY2 v1 auth`**, **`UKEY2 v1 next`** | literal strings in `pantaChannelService.exe` (the stock UKey2 constants) |
-| D2D session AEAD | **SecureMessage `AES_256_CBC` + `HMAC_SHA256`** (encrypt-then-MAC) | `AES_256_CBC-HMAC_SHA256`, `securemessage.EncScheme`/`SigScheme` |
-| D2D signatures | **`ECDSA_P256_SHA256`** | string `ECDSA_P256_SHA256`; `EVP_PKEY_sign`/`EVP_PKEY_verify` |
-| WiFi transfer channel | **AES-128-GCM** | `cryptoAesGcmNoPaddingEn/De`, `EVP_aes_128_gcm`; the `decryptAesGcm` seen in the ONet auth logs |
-| RNG / salt | `RAND_bytes` | `cryptoGenSalt` |
+(`next_protocol` is the string `"AES_256_CBC-HMAC_SHA256"`, as in stock UKey2,
+but that's only a label: the session cipher actually used is AES-256-GCM.)
 
-Crypto is **OpenSSL 1.1** (`libcrypto-1_1-x64.dll`) throughout.
+Inside that encrypted channel the phone sends `SYNC_SECURE` with the **KSC**:
+a 16-byte key it generates. Olink keeps it, but only after you press **Allow**
+(see below). The KSC is what the phone uses from then on, including every time
+it reconnects.
 
-### `pantaConnSDKDll.dll` — the exported crypto API (generic, reusable)
+## 2. The data channel: the KSC
 
-```
-cryptoGetEcdhKeyPair        cryptoGetEcdhSharedKey      cryptoUkey2DoKeyAgreement
-cryptoUkey2Hkdf             cryptoGenSalt
-cryptoAesGcmNoPaddingEn/De  cryptoAesCbcNoPaddingEn/De  cryptoAesCtr…  cryptoAesEcb…
-```
+The phone then opens TCP 46888. Before anything else, both sides prove they
+hold the KSC:
 
-These take salt/info/IV/tag **as parameters** — the DLL is a neutral crypto
-toolbox. The UKey2 *policy* (which labels, which cipher, the transcript) lives in
-`pantaChannelService.exe`, which is why the labels above are there and not in the DLL.
+- The phone sends a challenge `qc` and a timestamp; Olink checks
+  `HMAC-SHA512(KSC, qc ‖ timestamp)[..8]` and answers with its own challenge
+  `qs` and MAC; the phone confirms.
+- Each message after that is **AES-128-GCM** under a key made for it alone:
+  `HMAC-SHA512(KSC, qc‖qs ‖ counter)` gives 64 bytes, of which bytes 0–15 are
+  the key, 16–27 the nonce and 28–47 the associated data.
+- The counter travels with each message and must strictly increase, so
+  replayed or reordered messages are refused.
 
-## The handshake, end to end
+## 3. The phone screen: ODMF signalling
 
-```
-LAYER 1 — Bluetooth, module `fastPair` + `pantaChannelService`
-  • BLE GATT service UUID 0xAA16 / 0xAA17 (0000aa16/aa17-0000-1000-8000-00805f9b34fb),
-    advertised via WinRT (StartAdvertisementInternal) alongside Wi-Fi Direct.
-  • UKey2 handshake over GATT:
-       ClientInit  (cipher_commitments: P256_SHA512, SHA-512 commitment of ClientFinished)
-       ServerInit  (EcP256PublicKey)
-       ClientFinished (EcP256PublicKey)      ← generateP256SHA512ClientFinished
-    → ECDH P-256 → shared secret Z (32 B)
-  • UKey2 derives, via HKDF-SHA256:
-       auth string   = HKDF(Z-derived secret, salt=SHA256("UKEY2 v1 auth"), …)   → the 8-byte RC
-       next secret   = HKDF(…,               salt=SHA256("UKEY2 v1 next"), …)    → D2D key seed
-  • The "Allow this device?" dialog authorises the exchange (the confirm).
-  • SecureMessage D2DConnectionContext is created: AES-256-CBC + HMAC-SHA256.
-  • Result key (KSC) persisted: keyMgrSaveKsc + keyMgrSavePeerDeviceId → silent reconnects.
-  ───────────────────────────────────────────────────────────────────
-LAYER 2 — Wi-Fi/ONet, module `authentication`   (re-proof on each connect)
-  • getKsc loads the persisted key; generate{Server,Client}ChallengeMac;
-    checkRemoteParams compares the 8-byte RC; checkRc2 → auth success.
-  • Bulk traffic then uses AES-128-GCM (cryptoAesGcm*) — the transfer protocol in PROTOCOL.md.
-```
+To cast, Olink publishes an `odmf_auth_info` with a fresh P-256 public key
+(over the already-encrypted data channel); the phone answers with its own key,
+an IV and its encrypted credential. ECDH gives a shared secret for
+**AES-256-GCM**. The video itself is WebRTC (DTLS-SRTP), see CAST.md.
 
-The 8-byte RC captured on two sessions (`f6 7b ce 14 40 96 8e 06`,
-`53 28 0a 12 cf 05 27 48`) is the **UKey2 verification/auth string truncated to 8
-bytes** — exactly what `GetVerificationString()` produces in upstream UKey2.
+## What the crypto does and doesn't do
 
-## What a Linux client actually has to build
+The pairing QR carries **no secret**: just this PC's address. So anyone on the
+same network could start the pairing handshake. What makes a pairing
+legitimate is you scanning the code right then, which is why Olink always asks
+"Allow this phone?" before it saves a new phone's key (`approval.rs`: one
+request at a time, rate-limited, nothing saved without **Allow**). After that,
+the keys above protect every byte. PROGRESS.md has the full security review.
 
-Crypto: **none from scratch.** Use `google/ukey2` (C++, with SecureMessage) or a
-port. Everything above is its default behaviour with cipher `P256_SHA512`.
+## How this was worked out
 
-OPPO-specific glue (the real work):
-1. **BLE**: advertise/connect the GATT service **0xAA16/0xAA17**, and carry the
-   UKey2 `Ukey2Message` frames over its characteristics. (BlueZ on Linux.)
-2. **Confirm UX**: show an "Allow" dialog; UKey2's verification string is the hook.
-3. **Persist** the resulting D2D key + peer device-id (mirror `keyMgrSaveKsc`).
-4. **Wi-Fi/ONet layer**: the `authentication` re-proof (RC from the stored key)
-   and then the AES-128-GCM transfer channel (already mapped in PROTOCOL.md).
+Two sources, the second correcting the first:
 
-Item 1 (the GATT framing of UKey2) is the one piece still worth a BLE sniff to
-confirm characteristic layout; the crypto itself is done.
+1. **The Windows app's binaries.** `pantaConnSDKDll.dll` exports
+   `cryptoUkey2DoKeyAgreement`, `cryptoUkey2Hkdf`, `cryptoGenSalt` and
+   `cryptoAesGcmNoPaddingEn/De`, and imports OpenSSL 1.1's P-256
+   (`EC_KEY_new_by_curve_name` is always called with NID 415, `prime256v1`),
+   HMAC, SHA-256/512 and `EVP_aes_128_gcm`. `pantaChannelService.exe` contains
+   the UKey2 protobuf types, `generateP256SHA512ClientFinished`, the literal
+   salts `UKEY2 v1 auth` / `UKEY2 v1 next`, and a build path showing it
+   vendors Google's code (`utils\ukey2\protobuf_cpp\securemessage.pb.cc`).
+   Its logs show an 8-byte value both sides compare on reconnect: that's the
+   HMAC-SHA512 KSC proof of section 2.
+2. **The phone's own code** (decompiled), checked against live traffic, which
+   pinned the transport (Wi-Fi, SCP on 10152), the `ivSpec` addition and the
+   real session ciphers.
 
-## Binaries referenced
-
-- `daemon/pantaConnSDKDll.dll` — OpenSSL-based crypto + ONet (sha256 `671825e2…`).
-- `daemon/pantaChannelService.exe` — UKey2/SecureMessage pairing driver, the
-  `authentication` module (generateServerChallengeMac, checkRemoteParams, getKsc).
-- `daemon/libcrypto-1_1-x64.dll` — OpenSSL 1.1.
+An earlier version of this page, written from the Windows side alone, guessed
+that pairing ran over Bluetooth, that the session used AES-CBC with HMAC, and
+that the 8-byte value was the UKey2 verification string. All three were wrong
+and are corrected above; PAIRING.md keeps the research log in order.

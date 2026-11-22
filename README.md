@@ -1,4 +1,15 @@
-# Olink
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/olink.svg">
+    <img src="src/assets/olink-classic.svg" width="112" alt="Olink">
+  </picture>
+</p>
+
+<h1 align="center">Olink</h1>
+
+<p align="center">
+  <a href="https://github.com/whozdgt/Olink/actions/workflows/build.yml"><img src="https://github.com/whozdgt/Olink/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+</p>
 
 **Your OPPO, OnePlus or realme phone on Linux.** Olink speaks the phone's own
 PC-connection protocol ("O+ Connect" / Device connect → PC in ColorOS), so the
@@ -18,6 +29,11 @@ Hyprland.
   or just one app while the phone stays free to use.
 - Runs in the tray and starts with your login, using ~35 MB in the
   background: the window (a web view) only exists while it's open.
+
+<p align="center">
+  <img src="docs/screenshots/midnight.png" width="49%" alt="Olink in the Midnight theme: black, with every word in green">
+  <img src="docs/screenshots/classic.png" width="49%" alt="Olink in the Classic theme: light, with square corners">
+</p>
 
 ## Install
 
@@ -45,7 +61,8 @@ libnotify, xdg-desktop-portal.
 ### Firewall
 
 The phone connects in to TCP 10150-10152, 46888, 46890 and 46892, and the
-phone screen uses UDP 46900-46999. With ufw (the package installs a profile):
+phone screen uses UDP 46900-46999 ([what each port is for](ARCHITECTURE.md#ports)).
+With ufw (the package installs a profile):
 
 ```bash
 sudo ufw allow Olink
@@ -60,6 +77,15 @@ you just scanned the code.
 Closing the window keeps Olink in the tray (the phone stays connected);
 **Quit** in the tray menu ends it. Settings (⚙): screen quality, swipe or
 scroll for the touchpad, notifications, clipboard sharing, start on login.
+
+## Themes
+
+Olink follows your desktop's light or dark setting, using the two themes of
+its sister app [Streamline](https://github.com/whozdgt/streamline):
+**Midnight** when dark (black, every word in the accent green, rounded
+shapes) and **Classic** when light (square corners, black text). The icon
+has a version for each. To keep Midnight all the time, see the note at the
+top of `src/styles.css`.
 
 ## Security
 
@@ -84,10 +110,12 @@ to `$XDG_RUNTIME_DIR/olink/pairing-qr.svg`). UI work: see [UI.md](UI.md).
 
 ## Docs
 
-- **[PROGRESS.md](PROGRESS.md)**: what works, how, the security review.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: how a connection comes up, the code map, the ports.
+- **[PROGRESS.md](PROGRESS.md)**: what works, how, and the security review.
+- **[SCP.md](SCP.md)** and **[CRYPTO.md](CRYPTO.md)**: pairing, the secure channel and its crypto.
 - **[CAST.md](CAST.md)**: the phone screen (ODMF signalling, WebRTC, UIBC input).
-- **[SCP.md](SCP.md)**, **[PAIRING.md](PAIRING.md)**, **[CRYPTO.md](CRYPTO.md)**: pairing and its crypto.
 - **[PROTOCOL.md](PROTOCOL.md)**: file transfer.
+- **[PAIRING.md](PAIRING.md)**: the research log, from the Windows app's logs to the phone's own code.
 - **[UI.md](UI.md)**: the window's page, commands and events.
 
 ## Licence
@@ -99,8 +127,8 @@ MIT, see [LICENSE](LICENSE).
 Reverse-engineering for interoperability is broadly permitted (EU Software
 Directive; UK CDPA s.50B; US DMCA §1201(f)). This is a clean-room re-implementation
 from observed behaviour and public standards. Do not redistribute OPPO's binaries,
-code, bundled certificate, or trademarks/assets. `google/ukey2` and SecureMessage
-are Apache-2.0 — include their license when linking. Not legal advice.
+code, bundled certificate, or trademarks/assets. Olink implements Google's open
+UKey2 protocol itself, in Rust; it doesn't include Google's code. Not legal advice.
 
 OPPO, OnePlus, realme, ColorOS and O+ Connect are trademarks of their owners.
 Olink is an independent project and isn't affiliated with or endorsed by them.

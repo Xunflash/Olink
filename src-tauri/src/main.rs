@@ -10,7 +10,6 @@ macro_rules! println {
     ($($arg:tt)*) => { $crate::util::print_line(format!($($arg)*)) };
 }
 
-mod app;
 mod approval;
 mod autostart;
 mod ble;
@@ -20,13 +19,9 @@ mod discovery;
 mod events;
 mod instance;
 mod ipc;
-mod pairing;
 mod protocol;
 mod scp;
-mod session;
 mod settings;
-mod transport;
-mod trust;
 mod util;
 
 fn main() {
