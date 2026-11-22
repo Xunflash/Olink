@@ -44,6 +44,19 @@ pub enum ScrollMode {
     Scroll,
 }
 
+/// The window's look (Streamline's two themes).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    /// Midnight when the desktop is dark, Classic when it's light.
+    #[default]
+    System,
+    /// Black and green.
+    Midnight,
+    /// Light, with the bright accents.
+    Classic,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct Settings {
@@ -56,11 +69,12 @@ pub struct Settings {
     pub share_clipboard: bool,
     /// Start (in the tray) when the user logs in.
     pub start_on_login: bool,
+    pub theme: Theme,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { cast_quality: CastQuality::default(), scroll_mode: ScrollMode::default(), desktop_notifications: true, share_clipboard: true, start_on_login: true }
+        Self { cast_quality: CastQuality::default(), scroll_mode: ScrollMode::default(), desktop_notifications: true, share_clipboard: true, start_on_login: true, theme: Theme::System }
     }
 }
 

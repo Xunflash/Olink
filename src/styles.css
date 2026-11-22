@@ -16,9 +16,8 @@
  *   CLASSIC (Streamline's other theme, used here for light)
  *     ground #f3f0f5, black ink, square corners, white-ish surfaces.
  *
- * To make Olink always Midnight the way Streamline is, delete the
- * `prefers-color-scheme: light` blocks below and the light <source> of the
- * header icon in index.html (assets/olink-classic.svg).
+ * Settings → Look picks one: <html data-theme="midnight|classic">; without
+ * it (Match my desktop) `prefers-color-scheme` decides, as below.
  *
  * Constraints kept: no remote resources (the app's CSP), no build step,
  * Inter with the platform fallback, every id left to main.js.
@@ -72,7 +71,7 @@
 
 /* ---- Classic ---- */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="midnight"]) {
     --ink: #000000;
     --ink-soft: rgba(0, 0, 0, 0.72);
     --on-ink: #ffffff;
@@ -106,6 +105,42 @@
     color-scheme: light;
   }
 }
+
+/* The same, when Classic is chosen in Settings. */
+:root[data-theme="classic"] {
+  --ink: #000000;
+  --ink-soft: rgba(0, 0, 0, 0.72);
+  --on-ink: #ffffff;
+  --ground: #f3f0f5;
+  --surface: rgba(255, 255, 255, 0.95);
+  --field: rgba(255, 255, 255, 0.85);
+
+  --chip-fill: rgba(0, 0, 0, 0.08);
+  --card-fill: rgba(0, 0, 0, 0.05);
+  --glass: rgba(0, 0, 0, 0.08);
+  --glass-line: rgba(0, 0, 0, 0.175);
+  --round-button: transparent;
+
+  --hi-sel: rgba(0, 0, 0, 0.12);
+  --hi-hover: rgba(0, 0, 0, 0.06);
+  --box-fill: rgba(0, 0, 0, 0.05);
+  --box-hover: rgba(0, 0, 0, 0.08);
+  --box-line: rgba(0, 0, 0, 0.175);
+
+  --over: rgba(0, 0, 0, 0.08);
+  --over-press: rgba(0, 0, 0, 0.18);
+
+  /* Classic is square. */
+  --r-card: 0px;
+  --r-field: 0px;
+  --r-pill: 0px;
+
+  --bad: #b91c1c;
+  --bad-fill: rgba(185, 28, 28, 0.10);
+
+  color-scheme: light;
+}
+
 
 * {
   box-sizing: border-box;
@@ -353,11 +388,18 @@ body {
 
 /* Classic has no round-button fill, so a secondary button is outlined. */
 @media (prefers-color-scheme: light) {
-  .btn {
+  :root:not([data-theme="midnight"]) .btn {
     font-weight: 400;
     border: 1px solid var(--ink);
   }
 }
+
+/* The same, when Classic is chosen in Settings. */
+:root[data-theme="classic"] .btn {
+  font-weight: 400;
+  border: 1px solid var(--ink);
+}
+
 
 .btn:hover:not(:disabled) {
   box-shadow: inset 0 0 0 999px var(--over);

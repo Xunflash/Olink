@@ -378,6 +378,7 @@ function readSettingsForm() {
     desktop_notifications: f.desktop_notifications.checked,
     share_clipboard: f.share_clipboard.checked,
     start_on_login: f.start_on_login.checked,
+    theme: f.theme.value || "system",
   };
 }
 
@@ -388,6 +389,7 @@ function fillSettingsForm(s) {
   f.desktop_notifications.checked = !!s.desktop_notifications;
   f.share_clipboard.checked = !!s.share_clipboard;
   f.start_on_login.checked = !!s.start_on_login;
+  f.theme.value = s.theme || "system";
 }
 
 $("open-settings").addEventListener("click", async () => {
@@ -399,7 +401,20 @@ $("open-settings").addEventListener("click", async () => {
   }
 });
 
+// Settings → Look: "system" leaves it to prefers-color-scheme; the other
+// two force a theme (styles.css keys on <html data-theme>), header icon too.
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === "midnight" || theme === "classic") root.dataset.theme = theme;
+  else delete root.dataset.theme;
+  const light = $("brand-light");
+  if (light) {
+    light.media = theme === "classic" ? "all" : theme === "midnight" ? "not all" : "(prefers-color-scheme: light)";
+  }
+}
+
 settingsForm.addEventListener("change", async () => {
+  applyTheme(readSettingsForm().theme);
   try {
     await invoke("set_settings", { settings: readSettingsForm() });
   } catch (e) {
@@ -429,7 +444,7 @@ function setupDrop() {
 
 // ---- Demo (browser preview only) ---------------------------------------------------------
 
-let demoSettings = { cast_quality: "balanced", scroll_mode: "swipe", desktop_notifications: true, share_clipboard: true, start_on_login: true };
+let demoSettings = { cast_quality: "balanced", scroll_mode: "swipe", desktop_notifications: true, share_clipboard: true, start_on_login: true, theme: "system" };
 function demo(cmd, args) {
   if (cmd === "get_settings") return demoSettings;
   if (cmd === "set_settings") { demoSettings = args.settings; return null; }
@@ -458,6 +473,7 @@ function demo(cmd, args) {
 }
 
 (async function init() {
+  invoke("get_settings").then((s) => s && applyTheme(s.theme)).catch(() => {});
   setupDrop();
   if (tauri?.event) {
     await tauri.event.listen("phone", (e) => onEvent(e.payload));

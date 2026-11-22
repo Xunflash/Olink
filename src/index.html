@@ -11,7 +11,7 @@
       <header class="app__header">
         <div class="brand">
           <picture class="brand__mark-swap">
-            <source srcset="./assets/olink-classic.svg" media="(prefers-color-scheme: light)" />
+            <source id="brand-light" srcset="./assets/olink-classic.svg" media="(prefers-color-scheme: light)" />
             <img class="brand__mark" src="./assets/olink.svg" alt="" width="36" height="36" />
           </picture>
           <div>
@@ -110,6 +110,13 @@
     <dialog id="settings" class="dialog" aria-labelledby="settings-title">
       <form method="dialog" class="dialog__body">
         <h2 id="settings-title" class="dialog__title">Settings</h2>
+
+        <fieldset class="field">
+          <legend class="field__label">Look</legend>
+          <label class="choice"><input type="radio" name="theme" value="system" /> <span><b>Match my desktop</b> · Midnight when it's dark, Classic when it's light</span></label>
+          <label class="choice"><input type="radio" name="theme" value="midnight" /> <span><b>Midnight</b> · black and green</span></label>
+          <label class="choice"><input type="radio" name="theme" value="classic" /> <span><b>Classic</b> · light and colourful</span></label>
+        </fieldset>
 
         <fieldset class="field">
           <legend class="field__label">Phone screen quality</legend>
