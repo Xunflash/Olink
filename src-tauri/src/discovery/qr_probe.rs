@@ -166,6 +166,9 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
                             println!("  ! EPI write: {e}");
                             return;
                         }
+                        // A paired phone may stay quiet for hours: let the kernel's
+                        // keepalive notice a phone that's really gone instead.
+                        enable_keepalive(&s);
                         let (mut rd, mut s) = s.into_split();
                         let (msg_tx, mut msg_rx) = tokio::sync::mpsc::unbounded_channel::<anyhow::Result<Vec<u8>>>();
                         tokio::spawn(async move {
@@ -205,12 +208,20 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
                         loop {
                             let deadline = out.deadline;
                             tokio::select! {
-                                r = tokio::time::timeout(std::time::Duration::from_secs(120), msg_rx.recv()) => {
+                                r = async {
+                                    // Strangers get 30 s to authenticate; once the phone has,
+                                    // silence is normal (it only talks when something happens).
+                                    if authed {
+                                        Ok(msg_rx.recv().await)
+                                    } else {
+                                        tokio::time::timeout(std::time::Duration::from_secs(30), msg_rx.recv()).await
+                                    }
+                                } => {
                                     let m = match r {
                                         Ok(Some(Ok(m))) => m,
                                         Ok(Some(Err(e))) => { println!("[{:>7.3}s] :{port} {peer} ended: {e}", t0().elapsed().as_secs_f32()); return; }
                                         Ok(None) => return,
-                                        Err(_) => { println!("  :{port} idle 120 s, closing"); return; }
+                                        Err(_) => { println!("  :{port} not authenticated within 30 s, closing"); return; }
                                     };
                                     println!("[{:>7.3}s] :{port} ← msg {} bytes: {}", t0().elapsed().as_secs_f32(), m.len(), epi::describe(&m));
                                     if crate::util::debug() {
@@ -540,6 +551,21 @@ pub async fn run(args: &[String]) -> anyhow::Result<()> {
             dump("   ", &ubuf[..n]);
         }
     }
+}
+
+/// TCP keepalive on the phone's data channel: probes after 60 s of silence,
+/// every 15 s, 5 misses = gone (about 2 minutes to notice a phone that left).
+fn enable_keepalive(s: &tokio::net::TcpStream) {
+    use std::os::fd::AsRawFd;
+    let fd = s.as_raw_fd();
+    let set = |level: libc::c_int, opt: libc::c_int, v: libc::c_int| {
+        // SAFETY: setsockopt on our own socket with a valid int option.
+        unsafe { libc::setsockopt(fd, level, opt, (&v as *const libc::c_int).cast(), std::mem::size_of::<libc::c_int>() as libc::socklen_t) }
+    };
+    set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 60);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 15);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 5);
 }
 
 /// Bounds how many connections (paired or not) we serve at once, so a flood
