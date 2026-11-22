@@ -122,6 +122,27 @@ pub fn on_event(ev: &Event) {
     push(line(&st.now));
 }
 
+/// Olink is quitting: the bar must stop showing a connected phone. Waits
+/// (briefly) so the message goes out before the process ends.
+pub fn on_quit() {
+    let child = std::process::Command::new("noctalia")
+        .args(["msg", "plugin", "whozdgt/olink:island", "all", "status", "0"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    if let Ok(mut child) = child {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if !matches!(child.try_wait(), Ok(None)) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = child.kill();
+    }
+}
+
 /// Tell the bar widget (if Noctalia is running it): its IPC, no shell.
 fn push(line: String) {
     let _ = std::process::Command::new("noctalia")

@@ -159,7 +159,10 @@ fn main() {
         // No windows in this process: keep running (tray, phone link) until
         // "Quit" (an explicit exit code).
         tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
-        tauri::RunEvent::Exit => desktop::close_window(),
+        tauri::RunEvent::Exit => {
+            desktop::close_window();
+            status::on_quit();
+        }
         _ => {}
     });
     drop(rt);
