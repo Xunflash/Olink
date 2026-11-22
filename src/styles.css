@@ -168,6 +168,15 @@ body {
   outline-offset: 2px;
 }
 
+/* The focus ring follows the control's shape: a circle round a radio button. */
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"] {
+  border-radius: 4px;
+}
+
 .app {
   max-width: 760px;
   min-height: 100vh;
